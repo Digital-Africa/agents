@@ -9,8 +9,8 @@ from packages.storage import Operation, Reference
 logger = CloudLogger("identity")
 
 # Constants
-#MONITORED_DATABASES = ['Memo', 'zone_invest', 'startups_pool', 'zone_platform']
-MONITORED_DATABASES = ['96a2609ee4e44a01ae4841dd03672bc4']
+#['Memo', 'zone_invest', 'startups_pool', 'zone_platform']
+MONITORED_DATABASES = ['fe5715570ac747a4aa5452cc3cc9e628', '67853899c6ff4e78aeb2f25b0875b601', '9c0c831726e34ff99de32607e779d2c3', '96a2609ee4e44a01ae4841dd03672bc4']
 class SelfNotion:
     """Handles self-referential updates for Notion pages."""
 
@@ -84,20 +84,20 @@ def identity(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Initialize Notion client and get database references
         notion_client = Notion()
-        request = requests.get_json()
+        #request = requests.get_json()
         db_target = request.get('db_target', 'all')
         # Collect pages that need updating
         pages: List[Dict[str, Any]] = []
         if db_target == 'all':
-            for db_name in MONITORED_DATABASES:
+            for db_id in MONITORED_DATABASES:
                 try:
-                    db_pages = notion_client.pull.query_database(db_name, filter_)
+                    db_pages = notion_client.pull.query_database(db_id, filter_)
                     pages.extend(db_pages['results'])
                 except KeyError as e:
-                    logger.warning(f"{db_pages} {db_name} not found: {str(e)}")
+                    logger.warning(f"{db_pages} {db_id} not found: {str(e)}")
                     continue
                 except requests.RequestException as e:
-                    logger.error(f"Failed to query database {db_name}: {str(e)}")
+                    logger.error(f"Failed to query database {db_id}: {str(e)}")
                     continue
         else:
             try:

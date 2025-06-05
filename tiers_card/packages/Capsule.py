@@ -1,4 +1,5 @@
 from packages.Tasks import Tasks, TaskConfig
+from packages.Notion import NotionPusher
 
 class CapsuleNotion:
     """

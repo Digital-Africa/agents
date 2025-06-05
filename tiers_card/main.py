@@ -3,12 +3,15 @@ from flask import Request
 from google.cloud.firestore_v1 import FieldFilter
 import functions_framework
 from google.cloud import firestore
+import uuid
+
 
 from packages.Notion import Notion
 from packages.Firestore import StorageDriveFolder, NotionDatabase, Person
 from packages.Capsule import CapsuleNotion
 from packages.Logging import CloudLogger
 from packages.Drive import Drive
+from packages.Slack import SlackAPI
 
 
 class TiersCardManager:
@@ -19,17 +22,41 @@ class TiersCardManager:
     """
     
     def __init__(self, logger: Any):
-        """Initialize the TiersCardManager.
-        
-        Args:
-            logger (Any): Logger instance for structured logging
-        """
+        """Initialize the TiersCardManager with lazy loading."""
         self.logger = logger
-        self.notion = Notion()
-        self.storage = StorageDriveFolder()
-        self.drive = Drive()
-        self.person = Person()
+        self._notion = None
+        self._storage = None
+        self._drive = None
+        self._person = None
     
+    @property
+    def notion(self):
+        """Lazy load Notion client."""
+        if self._notion is None:
+            self._notion = Notion()
+        return self._notion
+
+    @property
+    def storage(self):
+        """Lazy load Storage client."""
+        if self._storage is None:
+            self._storage = StorageDriveFolder()
+        return self._storage
+
+    @property
+    def drive(self):
+        """Lazy load Drive client."""
+        if self._drive is None:
+            self._drive = Drive()
+        return self._drive
+
+    @property
+    def person(self):
+        """Lazy load Person client."""
+        if self._person is None:
+            self._person = Person()
+        return self._person
+
     def _extract_request_data(self, request: Request) -> Dict[str, Any]:
         """Extract and validate data from the request.
         
@@ -47,12 +74,11 @@ class TiersCardManager:
             if not request_data:
                 raise ValueError("No data found in request")
                 
-            drive_url = request_data['properties']['Drive']['url']
-            tiers_name = request_data['properties']['Tiers']['title'][0]['plain_text']
-            
+            # Extract only needed fields to reduce memory usage
             return {
-                'Tiers': tiers_name,
-                'Drive': drive_url,
+                'Tiers': request_data['properties']['Tiers']['title'][0]['plain_text'],
+                'Drive': request_data['properties']['Drive']['url'],
+                'request_person': request_data['properties']['Person Request']['people'][0]['id'],
                 'page_id': request_data['id']
             }
         except KeyError as e:
@@ -71,26 +97,99 @@ class TiersCardManager:
         """
         self.logger.info("Creating Drive folder", extra={
             'tiers_name': tiers_name,
-            'root': root
+            'root': root,
+            'permissions_count': len(permissions_list)
         })
-        return self.drive.create_folder(tiers_name, root, permissions_list)
+        try: 
+            drive_document = self.drive.create_folder(tiers_name, root, permissions_list)
+            self.logger.info("Successfully created drive folder ", extra={
+                'folder_id': drive_document['folder_id']
+            })
+            return drive_document
+        except Exception as e:
+            self.logger.error("Error creating drive folder", extra={
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'payload': tiers_name,
+                'stack_trace': str(e.__traceback__)
+            })
+            raise
     
     def create_tiers(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a tiers folder in Notion and Firestore.
-        
-        Args:
-            payload (Dict[str, Any]): Dictionary containing tier card data
-            
-        Returns:
-            Dict[str, Any]: Response from Notion API
-            
-        Raises:
-            Exception: If creation fails
-        """
+        """Create a tiers folder with optimized memory usage."""
         try:
             writer = self.notion.writer
             collection_name = 'Tiers'
             
+            # Create minimal properties object
+            properties = {
+                "_self_": writer.relation(payload['page_id']),
+                'id': writer.text(payload['page_id']),
+                'Drive': writer.url(payload['url'])
+            }
+
+            # Store in Firestore with minimal data
+            self.storage.client_firestore.collection(collection_name).document(payload['page_id']).set({
+                'page_id': payload['page_id'],
+                'Tiers': payload.get('Tiers'),
+                'Drive': payload.get('url'),
+                'Contract': []
+            }, merge=True)
+
+            # Create Notion page
+            response = CapsuleNotion(
+                page_id=payload['page_id'],
+                database=NotionDatabase().query('Tiers')['id'],
+                properties=properties
+            ).run()
+            
+            return response.json()
+            
+        except Exception as e:
+            self.logger.error("Error creating tiers folder", extra={
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'stack_trace': str(e.__traceback__)
+            })
+            raise
+    
+    def firestore_add_tiers_card(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Add a document to Firestore.
+        
+        Args:
+            payload (Dict[str, Any]): Dictionary containing document data
+            
+        Returns:
+            Dict[str, Any]: Response from Firestore
+        """
+        try:
+            collection_name = 'Tiers'
+            self.storage.client_firestore.collection(collection_name).document(payload['page_id']).set(payload, merge=True)
+            self.logger.info("[Firestore] Successfully added document to Firestore", extra={
+                    'page_id': payload['page_id'],
+                    'collection_name': collection_name
+                })
+            return 'ok'
+        except Exception as e:
+            self.logger.error("[Firestore] Error adding document to Firestore", extra={
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'payload': payload,
+                'stack_trace': str(e.__traceback__)
+            })
+            raise
+    
+    def notion_update_tiers(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a document in Notion.
+        
+        Args:
+            payload (Dict[str, Any]): Dictionary containing document data
+            
+        Returns:
+            Dict[str, Any]: Response from Notion API
+        """
+        try:
+            writer = self.notion.writer            
             properties = {
                 "_self_": writer.relation(payload['page_id']),
                 'id': writer.text(payload['page_id']),
@@ -102,92 +201,82 @@ class TiersCardManager:
                 'database': NotionDatabase().query('Tiers')['id'],
                 'properties': properties
             }
-                    
-            self.logger.info("Creating tiers folder", extra={
-                'page_id': payload['page_id'],
-                'tiers_name': payload.get('Tiers')
-            })
-            payload['Contract'] = []
-            self.storage.client_firestore.collection(collection_name).document(payload['page_id']).set(payload, merge=True)
-            response = CapsuleNotion(**params).run()
             
-            self.logger.info("Successfully created tiers folder", extra={
+            self.logger.info("[Notion] Updating tiers in Notion", extra={
                 'page_id': payload['page_id'],
-                'response': response.json()
+                'tiers_name': payload.get('Tiers'),
+                'database_id': params['database']
             })
-            return response.json()
-            
+            notion_response = CapsuleNotion(**params).run()
+            self.logger.info("[Notion] Successfully updated tiers in Notion", extra={
+                'page_id': payload['page_id'],
+                'response_id': notion_response.json().get('id'),
+                'response_status': notion_response.status_code
+            })
+            return notion_response.json()
         except Exception as e:
-            self.logger.error("Error creating tiers folder", extra={
+            self.logger.error(f"[Notion] Error updating tiers in Notion {e}", extra={ 
                 'error': str(e),
-                'payload': payload
+                'error_type': type(e).__name__,
+                'payload': payload,
+                'stack_trace': str(e.__traceback__)
             })
             raise
 
+    def send_slack_message(self, request_person, message):
+        try:
+            user_id = Person().query_notion_id(request_person)
+            SlackAPI().send_direct_message(user_id['slack_id'], message)
+        except Exception as e:
+            self.logger.error(f"[Slack] Error sending direct message {e}", extra={
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'payload': request_person,
+                'stack_trace': str(e.__traceback__)
+            })
+            raise
 
 @functions_framework.http
 def tiers_card(request: Request) -> Dict[str, Any]:
-    """Cloud Function to handle tier card creation in Notion and Firestore.
-    
-    This function processes incoming requests to create tier cards. It:
-    1. Extracts and validates the request data
-    2. Creates the tiers folder if needed
-    3. Creates the corresponding Notion page
-    
-    Args:
-        request (Request): Flask request object containing tier card data
-    
-    Returns:
-        Dict[str, Any]: Response from Notion API
-        
-    Raises:
-        Exception: If processing fails
-    """
+    """Cloud Function with optimized memory usage."""
+    request_id = str(uuid.uuid4())
     logger = CloudLogger("tiers_card").logger
-    logger.info("Starting tiers_card function execution")
     
     try:
-        # Add CORS headers for browser requests
+        # Handle CORS
         if request.method == 'OPTIONS':
-            headers = {
+            return ('', 204, {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'POST',
                 'Access-Control-Allow-Headers': 'Content-Type',
                 'Access-Control-Max-Age': '3600'
-            }
-            return ('', 204, headers)
+            })
 
-        # Set CORS headers for the main request
-        headers = {
-            'Access-Control-Allow-Origin': '*'
-        }
+        headers = {'Access-Control-Allow-Origin': '*'}
         
+        # Process request with minimal memory footprint
         manager = TiersCardManager(logger)
         payload = manager._extract_request_data(request)
         root = request.headers.get("X-root")
         
         if payload['Drive'] is None:
+            # Create drive folder only if needed
             permissions_list = []
-            drive_document = manager._create_drive_folder(payload['Tiers'], root, permissions_list)
-            payload = payload | drive_document
+            drive_document = manager.drive.create_folder(payload['Tiers'], root, permissions_list)
+            payload.update(drive_document)
             response = manager.create_tiers(payload)
             payload['tiers_notion_id'] = response['id']
-            logger.info("Successfully completed tiers_card function")
-            return (response, 200, headers)
+            manager.send_slack_message(payload['request_person'], f"Tiers folders created and unique id generated for {payload['Tiers']}\n\n{drive_document['url']}")
+            return (response, 200, headers) 
         else:
-            error_msg = 'Drive URL already exists'
-            logger.error(error_msg, extra={'payload': payload})
-            return ({'error': error_msg}, 400, headers)
+            return ({'error': 'Drive URL already exists'}, 400, headers)
             
     except ValueError as e:
-        logger.error("Validation error in tiers_card function", extra={
-            'error': str(e),
-            'request_data': request.get_json(force=True) if request.is_json else None
-        })
         return ({'error': str(e)}, 400, headers)
     except Exception as e:
         logger.error("Error in tiers_card function", extra={
+            'request_id': request_id,
             'error': str(e),
-            'request_data': request.get_json(force=True) if request.is_json else None
+            'error_type': type(e).__name__
         })
         return ({'error': 'Internal server error'}, 500, headers)

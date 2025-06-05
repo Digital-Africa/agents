@@ -436,37 +436,29 @@ class NotionPuller(NotionAPI):
         return response.json()
 
     def query_database(self, database_id: str, filter: Optional[Dict] = None) -> Dict:
-        """
-        Query a Notion database with optional filters and full pagination support.
-        
-        Args:
-            database_id (str): The ID of the database to query
-            filter (Optional[Dict]): Optional filter criteria
-            
-        Returns:
-            Dict: Complete query results including all pages
-        """
-        url = f'{self.base_url}/databases/{database_id}/query'
-        body = {'filter': filter} if filter else {}
-        
-        all_results = []
+        """Query database with pagination to handle large datasets."""
+        results = []
         has_more = True
-        next_cursor = None
+        start_cursor = None
         
         while has_more:
-            if next_cursor:
-                body['start_cursor'] = next_cursor
+            query_params = {
+                'database_id': database_id,
+                'page_size': 100  # Adjust based on your needs
+            }
+            if filter:
+                query_params['filter'] = filter
+            if start_cursor:
+                query_params['start_cursor'] = start_cursor
                 
-            response = requests.post(url, headers=self.headers, json=body)
-            try:
-                response.get('results')
-                all_results.extend(response['results'])
-                has_more = response.get('has_more', False)
-                next_cursor = response.get('next_cursor')
-                return {'results': all_results}
-
-            except:
-                return response.json()
+            response = self.push_to_notion(query_params)
+            data = response.json()
+            
+            results.extend(data.get('results', []))
+            has_more = data.get('has_more', False)
+            start_cursor = data.get('next_cursor')
+            
+        return {'results': results}
 
     def to_dict(self, database_id: str, columns: List[str]) -> List[Dict]:
         """Convert database query results to a list of dictionaries."""

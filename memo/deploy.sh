@@ -14,28 +14,28 @@ absolute_path="/Users/mo/Library/Mobile Documents/com~apple~CloudDocs/cloud_agen
 
 # Create necessary directories
 echo "Creating required directories..."
-mkdir -p packages
+#mkdir -p packages
 mkdir -p sa_keys
 
 # Copy SA keys
 echo "Copying SA keys..."
 cp -r "$absolute_path/sa_keys/"* ./sa_keys/
 
-# Copy required packages
-echo "Copying required packages..."
-for package in $(cat local_requirements.txt); do
-    if [ -f "$absolute_path/packages/$package.py" ]; then
-        echo "Copying $package.py..."
-        cp "$absolute_path/packages/$package.py" packages/
-    else
-        echo "Warning: $package.py not found in source directory"
-    fi
-done
+# # Copy required packages
+# echo "Copying required packages..."
+# for package in $(cat local_requirements.txt); do
+#     if [ -f "$absolute_path/packages/$package.py" ]; then
+#         echo "Copying $package.py..."
+#         cp "$absolute_path/packages/$package.py" packages/
+#     else
+#         echo "Warning: $package.py not found in source directory"
+#     fi
+# done
 
-# Copy any additional JSON files if they exist
-echo "Copying additional JSON files..."
-[ -f "$absolute_path/packages/people.json" ] && cp "$absolute_path/packages/people.json" packages/
-[ -f "$absolute_path/packages/groups.json" ] && cp "$absolute_path/packages/groups.json" packages/
+# # Copy any additional JSON files if they exist
+# echo "Copying additional JSON files..."
+# [ -f "$absolute_path/packages/people.json" ] && cp "$absolute_path/packages/people.json" packages/
+# [ -f "$absolute_path/packages/groups.json" ] && cp "$absolute_path/packages/groups.json" packages/
 
 echo "Deploying function $function..."
 gcloud functions deploy $function \

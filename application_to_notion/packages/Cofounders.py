@@ -1,7 +1,6 @@
 from packages.Notion import Notion
 from packages.Capsule import CapsuleNotion
 from packages.Affinity import Affinity
-from packages.storage import Operation, Reference
 
 
 class Cofounders:
@@ -36,12 +35,14 @@ class Cofounders:
             data (dict): Raw cofounder data containing required fields
         """
         self.data = data
+        self.database = '13619a07ff444d05bbee168b31ff7260'
+        self.icon = "https://www.notion.so/icons/card_brown.svg"
+        self.startups_pool = "67853899c6ff4e78aeb2f25b0875b601"
+        self.mapverse = "c4c8efef870e43c298cbd6344b8fb739"
         self.data = self.transform()
         self.capsule = self.build()
-        self.database = '13619a07ff444d05bbee168b31ff7260'
-        self.icon = 'card_brown'
     
-    def retrieve_relation(self, DB, filter_):
+    def match_satori_id(self, satori_id):
         """
         Retrieve a related page ID from a Notion database.
         
@@ -52,12 +53,38 @@ class Cofounders:
         Returns:
             str: Page ID of the matching record
         """
-        DBs = Operation().get(Reference.NotionDatabases)['result']
-        DB = DBs[DB]
-        match = Notion().pull.query_database(DB, filter_)
-        match = match['results'][0]
-        page_id = match['id']
-        return page_id
+        
+        filter_ = {
+                        "property": "satori_id",
+                        "rich_text": {
+                            "equals": satori_id
+                        }
+                    }
+        
+        match = Notion().pull.query_database(self.startups_pool, filter_)
+        match = match['results']
+        return match
+    
+    def match_country(self, country):
+        """
+        Retrieve a related page ID from a Notion database.
+        
+        Args:
+            DB (str): Database identifier to look up
+            filter_ (dict): Filter criteria for the database query
+            
+        Returns:
+            str: Page ID of the matching record
+        """
+        filter_ = {
+                        "property": "Country",
+                        "rich_text": {
+                            "equals": country
+                        }
+                    }
+        match = Notion().pull.query_database(self.mapverse, filter_)
+        match = match['results']
+        return match
     
     def not_exists(self):
         """
@@ -76,7 +103,7 @@ class Cofounders:
                         }
 
         match = Notion().pull.query_database(self.database, filter_)
-        if match['results'] == []:
+        if not match['results']:
             return True
         else:
             return False    
@@ -93,18 +120,18 @@ class Cofounders:
         Returns:
             dict: Enriched cofounder data
         """
-        filter_satori = lambda satori_id: {
-                        "property": "satori_id",
-                        "rich_text": {
-                                        "equals": satori_id
-                                    }
-                        }
         
-        id_startup = self.data['id_startup']
+        satori_id = self.data['id_startup']
         self.data['full_name'] = self.data['cofounder_first_name'] + " " + self.data['cofounder_last_name']
         email = self.data['cofounder_email']
-        #self.data['Nationality'] = self.retrieve_relation('Mapverse', nationality, filter_country(nationality))
-        self.data['startups_pool'] = self.retrieve_relation('startups_pool', filter_satori(id_startup))
+        country = self.match_country(self.data['cofounder_nationality'])
+        relation = self.match_satori_id(satori_id)
+        
+        if country:
+            self.data['Nationality'] = country[0]['id']
+        if relation:
+            relation = [match['id'] for match in relation]
+            self.data['startups_pool'] = relation
         
         affinity = Affinity().get_person(email)
         affinity_link = affinity.get('affinity_url')
@@ -138,15 +165,19 @@ class Cofounders:
         properties['title'] = writer.title(self.data['full_name'])
         
         #  ['Nationality', 'Z%7BZ~', 'relation']
-        #properties['Z%7BZ~'] = writer.relation(self.data['Nationality']) #TODO : retrieve page_id match with Mapverse
+        properties['Z%7BZ~'] = writer.relation(self.data['Nationality']) #TODO : retrieve page_id match with Mapverse
         #  ['Startups Pool', 'AQ%5E%60', 'relation']
-        properties['AQ%5E%60'] = writer.relation(self.data['startups_pool'])
+        startups_pool =  self.data.get('startups_pool', None)
+        if startups_pool:
+            properties['AQ%5E%60'] = writer.relation(startups_pool)
 
         #  ['Gender', 'R%40lG', 'select']
         properties['R%40lG'] = writer.select(self.data['cofounder_gender'])
 
         #  ['Firstname', 'fapT', 'rich_text']
         properties['fapT'] = writer.text(self.data['cofounder_first_name'])
+         #  ['satori_id', 'iELQ', 'rich_text']
+        properties['iELQ'] = writer.text(self.data['id_startup'])
         #  ['Lastname', 'yGDG', 'rich_text']
         properties['yGDG'] = writer.text(self.data['cofounder_last_name'])
         # ['id founder', 'XniD', 'rich_text']
@@ -172,10 +203,14 @@ class Cofounders:
         if self.not_exists():
             params = { 
                         'database': self.database,
-                        'icon': "https://www.notion.so/icons/{self.icon}.svg",
+                        'icon': self.icon,
                         'properties': self.capsule
                     }
             response = CapsuleNotion(**params).enqueue()
-            return response
+            # Convert Tasks response to dictionary to avoid Task object being returned
+            if response:
+                return {"status": "success", "message": "Cofounder record queued for creation"}
+            else:
+                return {"status": "error", "message": "Failed to queue cofounder record"}
         else:
-            print('already exisits in Notion')
+            return {"status": "info", "message": "Cofounder record already exists"}

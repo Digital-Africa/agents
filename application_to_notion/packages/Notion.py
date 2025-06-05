@@ -25,7 +25,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Union, Any, Optional
 from packages.storage import GCSStorage
-
+from packages.SecretAccessor import SecretAccessor
 
 class NotionAPI:
     """
@@ -36,7 +36,7 @@ class NotionAPI:
     
     def __init__(self):
         """Initialize the Notion API client."""
-        self.token = os.getenv('NOTION_NEURON')
+        self.token = SecretAccessor().get_secret('NOTION')
         self.headers = {
             'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json',
@@ -292,7 +292,48 @@ class NotionWriter:
             ]
         }
 
+    def embed_file(self, title: str, url: str) -> Dict:
+        """Create a Notion file property value."""
+        return {
+                    "files": [
+                        {
+                            "type": "external",
+                            "name": title,
+                            "external": {
+                                "url": url
+                            }
+                        }
+                    ]
+                }
 
+class NotionChildrenWriter:
+    """
+    A utility class for creating Notion API-compatible property values.
+    
+    This class provides methods to format different types of data into the proper
+    structure required by the Notion API for creating or updating children page properties.
+    """
+    def paragraph(self, content: str) -> Dict:
+        return {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                                    "rich_text": [{ "type": "text", "text": { "content": content } }]
+                                 }
+                    }
+    def embed_file(self, url: str) -> Dict:
+        return {
+                    "object": "block",
+                    "type": "file",
+                    "file": {
+                        "type": "external",
+                        "external": {
+                            "url": url
+                        }
+                    }
+                }
+    
+    
 class NotionPusher(NotionAPI):
     """
     Class for pushing data to Notion.

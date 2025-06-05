@@ -11,7 +11,7 @@ class CloudLogger(object):
 
         # Set up Python logger
         self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)
 
     def info(self, msg):
         self.logger.info(msg)

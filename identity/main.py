@@ -73,7 +73,13 @@ def identity(request: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         logger.info("Starting identity processing")
-        
+        try:
+            # handle webhook request
+            db_target = request.headers.get("X-database")
+        except:
+            # handle direct request
+            db_target = 'all'
+
         # Configure database filter
         filter_ = {
                     "property": "_self_",
@@ -84,8 +90,6 @@ def identity(request: Dict[str, Any]) -> Dict[str, Any]:
         
         # Initialize Notion client and get database references
         notion_client = Notion()
-        #request = requests.get_json()
-        db_target = request.get('db_target', 'all')
         # Collect pages that need updating
         pages: List[Dict[str, Any]] = []
         if db_target == 'all':
@@ -99,6 +103,8 @@ def identity(request: Dict[str, Any]) -> Dict[str, Any]:
                 except requests.RequestException as e:
                     logger.error(f"Failed to query database {db_id}: {str(e)}")
                     continue
+            logger.info(f"Ran for all - Found {len(pages)} pages requiring updates")
+
         else:
             try:
                 db_pages = notion_client.pull.query_database(db_target, filter_)
@@ -106,7 +112,7 @@ def identity(request: Dict[str, Any]) -> Dict[str, Any]:
             except KeyError as e:
                 logger.warning(f"{db_pages} {db_target} not found: {str(e)}")
         
-        logger.info(f"Found {len(pages)} pages requiring updates")
+            logger.info(f"Ran for {db_target} - Found {len(pages)} pages requiring updates")
         
         # Process each page
         responses = []

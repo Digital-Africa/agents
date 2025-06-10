@@ -14,7 +14,7 @@ class Firestore:
     
     def __init__(self):
         """Initialize the Firestore base class with a Firestore client."""
-        self.client_firebase = self.client()
+        self.client_firestore = self.client()
 
     def client(self):
         """Create and return a Firestore client instance.

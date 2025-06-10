@@ -20,6 +20,7 @@ gcloud functions deploy $function \
   --project=digital-africa-rainbow \
   --entry-point=$function \
   --allow-unauthenticated \
-  --service-account=puppy-sign@digital-africa-rainbow.iam.gserviceaccount.com
+  --service-account=puppy-sign@digital-africa-rainbow.iam.gserviceaccount.com \
+  --memory=512Mi \
 
 echo "✅ Deployment completed successfully!"

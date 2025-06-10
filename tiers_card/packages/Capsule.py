@@ -1,5 +1,6 @@
 from packages.Tasks import Tasks, TaskConfig
 from packages.Notion import NotionPusher
+import uuid
 
 class CapsuleNotion:
     """
@@ -15,9 +16,10 @@ class CapsuleNotion:
         page_id (str, optional): ID of an existing Notion page for updates
         children (dict, optional): children to be added to the Notion page
         capsule (dict): Built capsule containing payload and queue information
+        task_name (str, optional): Custom name for the task in Cloud Tasks
     """
     
-    def __init__(self, database, properties, children=None, icon=None, page_id=None):
+    def __init__(self, database, properties, children=None, icon=None, page_id=None, task_name=None):
         """
         Initialize a new CapsuleNotion instance.
         
@@ -27,12 +29,14 @@ class CapsuleNotion:
             children (dict, optional): children to be added to the Notion page
             icon (str, optional): Icon identifier for the Notion page
             page_id (str, optional): ID of an existing Notion page for updates
+            task_name (str, optional): Custom name for the task in Cloud Tasks
         """
         self.icon = icon
         self.db = database
         self.properties = properties
         self.page_id = page_id
         self.children = children
+        self.task_name = task_name
         self.capsule = self.build()
 
         
@@ -58,19 +62,14 @@ class CapsuleNotion:
         if self.children != None:
             #pass
             body['children'] = self.children
-
-        if self.page_id == None:
-            return {    
-                        'payload': {'body':body}, 
-                        'queue': 'notion-queue', 
-                        'url':'https://europe-west1-digital-africa-rainbow.cloudfunctions.net/push_notion'
-                    }
-        else:            
-            return {    
-                        'payload': {'body': body, 'page_id': self.page_id}, 
-                        'queue': 'notion-queue', 
-                        'url':'https://europe-west1-digital-africa-rainbow.cloudfunctions.net/push_notion'
-                    }
+        if self.task_name is None:
+            self.task_name = 'random_' + str(uuid.uuid4())
+            
+        return {    
+                    'payload': {'body': body, 'page_id': self.page_id, 'task_name': self.task_name}, 
+                    'queue': 'notion-queue', 
+                    'url':'https://europe-west1-digital-africa-rainbow.cloudfunctions.net/push_notion'
+                }
 
     def enqueue(self):
         """
@@ -87,7 +86,9 @@ class CapsuleNotion:
         """
 
         TaskConfig.servive_account = "sa_keys/puppy-executor-key.json"
-        response = Tasks().add_task(self.capsule)
+        config = TaskConfig()
+        config.queue = 'notion-queue'
+        response = Tasks(config).add_task(self.capsule, task_name=self.task_name)
         return response
 
     def run(self):

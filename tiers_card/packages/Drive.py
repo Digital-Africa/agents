@@ -3,7 +3,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 import io
-import requests
 
 class Drive:
     def __init__(self):
@@ -27,7 +26,17 @@ class Drive:
             'mimeType': 'application/vnd.google-apps.folder',
             'parents': [parent_id]
         }
-        if self.name_not_exists(name, parent_id):
+        folder_tiers = self.name_not_exists(name, parent_id)
+        if folder_tiers:
+            drive_document = folder_tiers[0]
+            return {
+                    'folder_name': name,
+                    'folder_id': drive_document['id'],
+                    'parent_id': parent_id,
+                    'permissions': self.get_permissions(drive_document['id']),
+                    'url': f"https://drive.google.com/drive/folders/{drive_document['id']}"
+                    }
+        else:
             folder = self.service.files().create(body=metadata, fields='id').execute()
             for p in permissions_list:
                 self.set_permissions(folder['id'], p)
@@ -38,9 +47,6 @@ class Drive:
                     'permissions': self.get_permissions(folder['id']),
                     'url': f"https://drive.google.com/drive/folders/{folder['id']}"
                     }
-        else:
-            print(f"Folder {name} already exists at specified path")
-            return None
 
     def get_permissions(self, folder_id):
         response = self.service.permissions().list(
@@ -83,28 +89,28 @@ class Drive:
         results = self.service.files().list(q=query, fields="files(id, name)").execute()
         folders = results.get('files', [])
 
-        return len(folders) == 0
+        return folders
 
     def store_notion_file_to_drive(self, notion_file_url: str, filename: str, folder_id: str) -> dict:
-        # Use streaming for large files
-        with requests.get(notion_file_url, headers={"User-Agent": "Mozilla/5.0"}, stream=True) as response:
-            response.raise_for_status()
-            
-            # Process the file in chunks
-            chunk_size = 8192  # 8KB chunks
-            file_data = io.BytesIO()
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                file_data.write(chunk)
-            
-            file_data.seek(0)
-            media = MediaIoBaseUpload(file_data, 
-                                    mimetype=response.headers.get("Content-Type", "application/octet-stream"),
-                                    resumable=True)
-            
-            uploaded = self.service.files().create(
-                body={'name': filename, 'parents': [folder_id]},
-                media_body=media,
-                fields='id, name, webViewLink, mimeType'
-            ).execute()
-            
-            return uploaded
+        # Step 1: Download the file
+        headers = {
+                    "User-Agent": "Mozilla/5.0"
+                }
+        response = requests.get(notion_file_url, headers=headers)
+        response.raise_for_status()
+
+        file_data = io.BytesIO(response.content)
+
+        file_metadata = {
+            'name': filename,
+            'parents': [folder_id]
+        }
+        media = MediaIoBaseUpload(file_data, mimetype=response.headers.get("Content-Type", "application/octet-stream"))
+
+        uploaded = self.service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, name, webViewLink, mimeType'
+        ).execute()
+
+        return uploaded

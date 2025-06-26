@@ -57,13 +57,15 @@ class CapsuleNotion:
         body['parent'] = {'database_id': self.db}
         body['properties'] = self.properties
         
-        if self.icon != None:
+        if self.icon is not None:
             body['icon'] =  {'type': 'external','external': {'url': self.icon}}
-        if self.children != None:
+        if self.children is not None:
             #pass
             body['children'] = self.children
         if self.task_name is None:
-            self.task_name = 'random_' + str(uuid.uuid4())
+            self.task_name = 'random_' + str(uuid.uuid4().hex)
+        else:
+            self.task_name = self.task_name + '_' + str(uuid.uuid4().hex)
             
         return {    
                     'payload': {'body': body, 'page_id': self.page_id, 'task_name': self.task_name}, 

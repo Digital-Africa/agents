@@ -1,6 +1,5 @@
 import json
 from google.cloud import tasks_v2
-from google.oauth2 import service_account
 from google.cloud import firestore
 from packages.Logging import CloudLogger
 from packages.Firestore import Firestore
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 import os
 from datetime import datetime
 from enum import Enum
+from google.auth import default
 
 class TaskStatus(Enum):
     """Enumeration of possible task execution states.
@@ -58,13 +58,11 @@ class TaskConfig:
         project_id (str): Google Cloud project ID
         queue (str): Default queue name
         location (str): Google Cloud region
-        service_account_file (str): Path to service account key file
         firestore_collection (str): Name of the Firestore collection for task status
     """
     project_id: str = 'digital-africa-rainbow'
     queue: str = "default"
     location: str = "europe-west1"
-    service_account_file: str = "sa_keys/puppy-executor-key.json"
     firestore_collection: str = "task_status"
 
 class Tasks(object):
@@ -72,6 +70,7 @@ class Tasks(object):
     
     Provides a simplified interface for working with Google Cloud Tasks,
     including task creation, management, and error handling.
+    Uses Google Application Credentials for authentication.
     
     Attributes:
         config (TaskConfig): Configuration for the Tasks client
@@ -81,49 +80,63 @@ class Tasks(object):
     """
     
     def __init__(self, config: Optional[TaskConfig] = None):
-        """Initialize Tasks client.
+        """Initialize Tasks client with Google Application Credentials.
         
         Args:
             config (Optional[TaskConfig]): Configuration for the client.
                 If not provided, will use default configuration.
+                
+        Raises:
+            Exception: If authentication fails or client initialization fails
         """
         super(Tasks, self).__init__()
+        self.logging = CloudLogger(logger_name='Puppy_Task_Management', max_ssl_errors=5, initial_retry_delay=2.0)
         self.config = config or self._load_config_from_env()
         self._initialize_client()
         self._initialize_firestore()
-        self.logging = CloudLogger(logger_name='Puppy_Task_Management')
         
         # For backward compatibility
         self.project = self.config.project_id
         self.queue = self.config.queue
         self.location = self.config.location
-        self.SERVICE_ACCOUNT_FILE = self.config.service_account_file
     
     def _load_config_from_env(self) -> TaskConfig:
-        """Load configuration from environment variables."""
+        """Load configuration from environment variables.
+        
+        Returns:
+            TaskConfig: Configuration object with values from environment or defaults
+        """
         return TaskConfig(
             project_id=os.getenv("PUPPY_PROJECT_ID", "digital-africa-rainbow"),
             queue=os.getenv("PUPPY_QUEUE", "default"),
-            location=os.getenv("PUPPY_LOCATION", "europe-west1"),
-            service_account_file=os.getenv("PUPPY_SA_FILE", "sa_keys/puppy-executor-key.json")
+            location=os.getenv("PUPPY_LOCATION", "europe-west1")
         )
     
     def _initialize_client(self) -> None:
-        """Initialize the Cloud Tasks client."""
+        """Initialize the Cloud Tasks client using Google Application Credentials.
+        
+        Uses google.auth.default() to get credentials automatically.
+        
+        Raises:
+            Exception: If authentication fails or client initialization fails
+        """
         try:
-            credentials = service_account.Credentials.from_service_account_file(
-                self.config.service_account_file
-            )
+            credentials, _ = default()
             self.client = tasks_v2.CloudTasksClient(credentials=credentials)
+            self.logging.info("Cloud Tasks client initialized with Google Application Credentials")
         except Exception as e:
-            #self.logging.error(f"Failed to initialize client: {e}")
-            print(e)
-            raise
+            error_msg = f"Failed to initialize Cloud Tasks client: {e}"
+            self.logging.error(error_msg)
+            raise Exception(error_msg)
     
     def _initialize_firestore(self) -> None:
-        """Initialize the Firestore client."""
+        """Initialize the Firestore client.
+        
+        Raises:
+            Exception: If Firestore client initialization fails
+        """
         try:
-            self.db = Firestore().client_firestore
+            self.db = Firestore().client
         except Exception as e:
             self.logging.error(f"Failed to initialize Firestore client: {e}")
             raise

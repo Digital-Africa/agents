@@ -4,6 +4,28 @@ from packages.Notion import Notion
 from google.cloud.firestore_v1 import FieldFilter
 from packages.Affinity import Affinity
 from packages.Slack import get_slack_person_id
+import os
+from google.auth import default
+
+def get_firestore_client(project='digital-africa-rainbow', database='memory-bank'):
+    """Create and return a Firestore client instance with fallback authentication.
+    
+    Args:
+        database (str): The Firestore database name. Defaults to 'memory-bank'.
+        
+    Returns:
+        google.cloud.firestore.Client: An authenticated Firestore client.
+        
+    Raises:
+        FileNotFoundError: If service account file doesn't exist and no default credentials.
+        Exception: If authentication fails with both methods.
+    """
+    # Fallback to Google Application Credentials
+    try:
+        credentials, _ = default()
+        return firestore.Client(credentials=credentials, project=project, database=database)
+    except Exception as e:
+        raise Exception(f"Failed to authenticate with Google Application Credentials: {e}")
 
 class Firestore:
     """Base class for Firestore operations.
@@ -12,22 +34,11 @@ class Firestore:
     that is used by other Firestore-related classes in the application.
     """
     
-    def __init__(self):
+    def __init__(self, database='memory-bank'):
         """Initialize the Firestore base class with a Firestore client."""
-        self.client_firestore = self.client()
+        self.firestore_database = database
+        self.client = get_firestore_client(project='digital-africa-rainbow', database=database)
 
-    def client(self):
-        """Create and return a Firestore client instance.
-        
-        Returns:
-            google.cloud.firestore.Client: An authenticated Firestore client
-                configured with service account credentials.
-        """
-        key_path = "sa_keys/puppy-executor-key.json"
-        credentials = service_account.Credentials.from_service_account_file(key_path)
-        client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
-        return client_firestore
-    
 class Person:
     """A class to manage person-related operations in Firestore.
     
@@ -39,18 +50,7 @@ class Person:
     def __init__(self):
         """Initialize the Person class with Firestore client and collection name."""
         self.collection_name = 'Persons'
-        self.client_firebase = self.client()
-
-    def client(self):
-        """Create and return a Firestore client instance.
-        
-        Returns:
-            google.cloud.firestore.Client: An authenticated Firestore client.
-        """
-        key_path = "sa_keys/puppy-executor-key.json"
-        credentials = service_account.Credentials.from_service_account_file(key_path)
-        client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
-        return client_firestore
+        self.client = get_firestore_client(project='digital-africa-rainbow', database='references')
     
     def update_collection(self, person):
         """Update or create a person document in Firestore.
@@ -75,7 +75,7 @@ class Person:
         affinity_id = person.get('affinity_id', Affinity().get_affinity_person_id(email))
         
         p = {'notion_id': notion_id, 'email': email, 'slack_id': slack_id, 'affinity_id': affinity_id}
-        self.client_firebase.collection(self.collection_name).document(p['notion_id']).set(p, merge=True)
+        self.client.collection(self.collection_name).document(p['notion_id']).set(p, merge=True)
     
     def query_notion_id(self, notion_id):
         """Query a person by their Notion ID.
@@ -86,7 +86,7 @@ class Person:
         Returns:
             dict or None: Person document if found, None otherwise.
         """
-        query = self.client_firebase.collection(self.collection_name).where(filter=FieldFilter('notion_id', '==', notion_id)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter('notion_id', '==', notion_id)).get()
         person = [e.to_dict() for e in query]
         return person[0] if person else None
     
@@ -99,7 +99,7 @@ class Person:
         Returns:
             dict or None: Person document if found, None otherwise.
         """
-        query = self.client_firebase.collection(self.collection_name).where(filter=FieldFilter('affinity_id', '==', affinity_id)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter('affinity_id', '==', affinity_id)).get()
         person = [e.to_dict() for e in query]
         return person[0] if person else None
 
@@ -112,7 +112,7 @@ class Person:
         Returns:
             dict or None: Person document if found, None otherwise.
         """
-        query = self.client_firebase.collection(self.collection_name).where(filter=FieldFilter('slack_id', '==', slack_id)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter('slack_id', '==', slack_id)).get()
         person = [e.to_dict() for e in query]
         return person[0] if person else None
 
@@ -125,7 +125,7 @@ class Person:
         Returns:
             dict or None: Person document if found, None otherwise.
         """
-        query = self.client_firebase.collection(self.collection_name).where(filter=FieldFilter('email', '==', email)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter('email', '==', email)).get()
         person = [e.to_dict() for e in query]
         return person[0] if person else None
     
@@ -135,7 +135,7 @@ class Person:
         Returns:
             list: List of all person documents.
         """
-        query = self.client_firebase.collection(self.collection_name).stream()
+        query = self.client.collection(self.collection_name).stream()
         person = [e.to_dict() for e in query]
         return person
     
@@ -149,18 +149,7 @@ class NotionDatabase:
     def __init__(self):
         """Initialize the NotionDatabase class with Firestore client and collection name."""
         self.collection_name = 'NotionDatabases'
-        self.client_firestore = self.client()
-    
-    def client(self):
-        """Create and return a Firestore client instance.
-        
-        Returns:
-            google.cloud.firestore.Client: An authenticated Firestore client.
-        """
-        key_path = "sa_keys/puppy-executor-key.json"
-        credentials = service_account.Credentials.from_service_account_file(key_path)
-        client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
-        return client_firestore
+        self.client = get_firestore_client(project='digital-africa-rainbow', database='references')
 
     def update_collection(self, database):
         """Update or create a Notion database document in Firestore.
@@ -168,7 +157,7 @@ class NotionDatabase:
         Args:
             database (dict): Dictionary containing Notion database information.
         """
-        self.client_firestore.collection(self.collection_name).document(database['name']).set(database, merge=True)
+        self.client.collection(self.collection_name).document(database['name']).set(database, merge=True)
     
     def query(self, db_name):
         """Query a Notion database by its name.
@@ -179,7 +168,7 @@ class NotionDatabase:
         Returns:
             dict or None: Database document if found, None otherwise.
         """
-        query = self.client_firestore.collection(self.collection_name).where(filter=FieldFilter("name", "==", db_name)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter("name", "==", db_name)).get()
         results = [e.to_dict() for e in query]
         return results[0] if results else None
     
@@ -200,18 +189,7 @@ class Memo:
         self.collection_name = 'Memo'
         self.data = data
         self.reader = Notion().reader
-        self.client_firestore = self.client()
-
-    def client(self):
-        """Create and return a Firestore client instance.
-        
-        Returns:
-            google.cloud.firestore.Client: An authenticated Firestore client.
-        """
-        key_path = "sa_keys/puppy-executor-key.json"
-        credentials = service_account.Credentials.from_service_account_file(key_path)
-        client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
-        return client_firestore
+        self.client = get_firestore_client(project='digital-africa-rainbow', database='memory-bank')
     
     def exists(self):
         """Check if the memo has a self-relation.
@@ -293,7 +271,7 @@ class Memo:
         Returns:
             google.cloud.firestore.types.WriteResult: Result of the write operation.
         """
-        return self.client_firestore.collection(self.collection_name).document(self.data['id']).set(self.transform(), merge=True)
+        return self.client.collection(self.collection_name).document(self.data['id']).set(self.transform(), merge=True)
 
 class StorageDriveFolder:
     """A class to manage storage drive folder operations in Firestore.
@@ -306,19 +284,7 @@ class StorageDriveFolder:
     def __init__(self):
         """Initialize the StorageDriveFolder class with Firestore client and collection name."""
         self.collection_name = 'StorageDriveFolder'
-        self.client_firestore = self.client()
-    
-    def client(self):
-        """Create and return a Firestore client instance.
-        
-        Returns:
-            google.cloud.firestore.Client: An authenticated Firestore client
-                configured with service account credentials.
-        """
-        key_path = "sa_keys/puppy-executor-key.json"
-        credentials = service_account.Credentials.from_service_account_file(key_path)
-        client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
-        return client_firestore
+        self.client = get_firestore_client(project='digital-africa-rainbow', database='memory-bank')
 
     def update_collection(self, document):
         """Update or create a storage drive folder document in Firestore.
@@ -327,7 +293,7 @@ class StorageDriveFolder:
             document (dict): Dictionary containing storage drive folder information
                 and metadata.
         """
-        self.client_firestore.collection(self.collection_name).document().set(document, merge=True)
+        self.client.collection(self.collection_name).document().set(document, merge=True)
     
     def query(self, db_name):
         """Query a storage drive folder document by its name.
@@ -338,7 +304,7 @@ class StorageDriveFolder:
         Returns:
             dict or None: Storage drive folder document if found, None otherwise.
         """
-        query = self.client_firestore.collection(self.collection_name).where(filter=FieldFilter("name", "==", db_name)).get()
+        query = self.client.collection(self.collection_name).where(filter=FieldFilter("name", "==", db_name)).get()
         results = [e.to_dict() for e in query]
         return results[0] if results else None
     

@@ -19,3 +19,4 @@ sa_keys/
 *sa-key*.json
 
 .DS_Store
+remote/

@@ -1,0 +1,20 @@
+title: "Satori Handler Custom Role"
+description: "Custom role for Satori CSV processing function with minimal required permissions"
+stage: "GA"
+includedPermissions:
+  # Firestore permissions
+  - "datastore.entities.get"
+  - "datastore.entities.list"
+  - "datastore.entities.create"
+  - "datastore.entities.update"
+  - "datastore.entities.delete"
+  
+  # Cloud Storage permissions
+  - "storage.objects.get"
+  - "storage.objects.list"
+  - "storage.buckets.get"
+  
+  # Cloud Logging permissions
+  - "logging.logEntries.create"
+  - "logging.logEntries.list"
+  - "logging.logs.list" 

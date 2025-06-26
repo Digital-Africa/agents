@@ -24,10 +24,10 @@ class Card:
             request (str): The name of the file that triggered the event
         """
         self.request = request
-        self.db = Firestore().client_firestore
+        self.db = Firestore(database='memory-bank').client
         self.storage = GCSStorage(
             bucket_name="fuze-subscriptions",  # Replace with your bucket name
-            service_account_path="sa_keys/puppy-executor-key.json"
+            project_id="digital-africa-fuze"
         )
         self.logger = CloudLogger("CardProcessor", prefix="card_processor")
         if 'startups' in request:
@@ -68,11 +68,17 @@ class Card:
             ]
             
             self.logger.info(f"Creating {len(cofounder_documents)} cofounder documents")
+            
+            # Use batch write for better performance
+            batch = self.db.batch()
             for card in cofounder_documents:
-                self.db.collection(collection_name).document(card['satori_id']).set(card)
-                self.logger.debug(f"Created cofounder document for satori_id: {card['satori_id']}")
+                doc_ref = self.db.collection(collection_name).document(card['satori_id'])
+                batch.set(doc_ref, card)
+                self.logger.debug(f"Added cofounder document for satori_id: {card['satori_id']} to batch")
                 
-            self.logger.info("Successfully processed all cofounder documents")
+            # Commit the batch
+            batch.commit()
+            self.logger.info("Successfully committed all cofounder documents in batch")
             return 200, "Cofounder card created successfully"
         except Exception as e:
             self.logger.error(f"Error processing cofounder data: {str(e)}", extra={"file": self.request})
@@ -120,11 +126,17 @@ class Card:
             ]
             
             self.logger.info(f"Creating {len(startups_documents)} startup documents")
+            
+            # Use batch write for better performance
+            batch = self.db.batch()
             for card in startups_documents:
-                collection.document(card['satori_id']).set(card)
-                self.logger.debug(f"Created startup document for satori_id: {card['satori_id']}")
+                doc_ref = collection.document(card['satori_id'])
+                batch.set(doc_ref, card)
+                self.logger.debug(f"Added startup document for satori_id: {card['satori_id']} to batch")
                 
-            self.logger.info("Successfully processed all startup documents")
+            # Commit the batch
+            batch.commit()
+            self.logger.info("Successfully committed all startup documents in batch")
             return 200, "Startups card created successfully"
         except Exception as e:
             self.logger.error(f"Error processing startup data: {str(e)}", extra={"file": self.request})
@@ -139,7 +151,7 @@ class Card:
         Returns:
             tuple: (status_code, message) indicating success or failure
         """
-        collection_name = 'memos'
+        collection_name = 'memo'
         collection = self.db.collection(collection_name)
         try:
             self.logger.info(f"Processing memo data from {self.request}")
@@ -161,17 +173,23 @@ class Card:
             ]
             
             self.logger.info(f"Creating {len(memos_documents)} memo documents")
+            
+            # Use batch write for better performance
+            batch = self.db.batch()
             for card in memos_documents:
-                collection.document(card['satori_id']).set(card)
-                self.logger.debug(f"Created memo document for satori_id: {card['satori_id']}")
+                doc_ref = collection.document(card['satori_id'])
+                batch.set(doc_ref, card)
+                self.logger.debug(f"Added memo document for satori_id: {card['satori_id']} to batch")
                 
-            self.logger.info("Successfully processed all memo documents")
+            # Commit the batch
+            batch.commit()
+            self.logger.info("Successfully committed all memo documents in batch")
             return 200, "Memo card created successfully"
         except Exception as e:
             self.logger.error(f"Error processing memo data: {str(e)}", extra={"file": self.request})
             raise e
 
-def handle_satori_input(event):
+def handle_satori(event, context):
     """Cloud Function entry point triggered by Cloud Storage events.
     
     Processes uploaded CSV files and creates corresponding cards in Firestore.
@@ -179,6 +197,7 @@ def handle_satori_input(event):
     
     Args:
         event: The event data from Cloud Storage trigger (can be CloudEvent or dict)
+        context: Metadata for the event (unused)
         
     Returns:
         None
@@ -196,7 +215,7 @@ def handle_satori_input(event):
     logger.info(f"Processing file: {request_name} in bucket: {data['bucket']}")
     
     card = Card(request_name)
-    try:    
+    try:   
         if 'startups' in request_name:
             logger.info("Processing startups file")
             card.startups_card()

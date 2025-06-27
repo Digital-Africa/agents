@@ -51,17 +51,16 @@ class Drive:
     def set_permissions(self, folder_id, email):
         permission = {
                             'type': 'user',        # or 'group', 'domain', 'anyone'
-                            'role': 'writer',      # or 'reader', 'commenter', 'owner'
+                            'role': "writer",      # or 'reader', 'commenter', 'owner'
                             'emailAddress': email
                         }
 
-        response = self.service.permissions().create(
+        return self.service.permissions().create(
             fileId=folder_id,
             body=permission,
             fields='id',
             sendNotificationEmail=False  # Set to True to notify the user
         ).execute()
-        return response
 
 
     def id_not_exists(self, folder_id):

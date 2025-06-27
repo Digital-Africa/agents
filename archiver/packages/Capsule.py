@@ -1,4 +1,5 @@
 from packages.Tasks import Tasks, TaskConfig
+from packages.Notion import NotionPusher
 
 class CapsuleNotion:
     """
@@ -88,3 +89,12 @@ class CapsuleNotion:
         TaskConfig.servive_account = "sa_keys/puppy-executor-key.json"
         response = Tasks().add_task(self.capsule)
         return response
+    
+    def run(self):
+        if self.capsule['payload'].get('page_id'):
+            response =  NotionPusher().push_to_notion(self.capsule['payload']['body'], self.capsule['payload']['page_id'])
+            return response
+
+        else:
+            response =  NotionPusher().push_to_notion(self.capsule['payload']['body'])
+            return response

@@ -72,7 +72,7 @@ class TiersCardManager:
             # Extract only needed fields
             return {
                 'Tiers': request_data['properties']['Tiers']['title'][0]['plain_text'],
-                'Drive': request_data['properties']['Drive']['url'],
+                #'Drive': request_data['properties']['Drive']['url'],
                 'request_person': request_data['properties']['Person Request']['people'][0]['id'],
                 'page_id': request_data['id']
             }
@@ -160,7 +160,8 @@ class TiersCardManager:
                 'page_id': payload['page_id'],
                 'Tiers': payload.get('Tiers'),
                 'Drive': payload.get('url'),
-                'Contract': []
+                'Contract': [],
+                'folder_id': payload.get('folder_id')
             }
             
             self.storage.client_firestore.collection(collection_name).document(payload['page_id']).set(essential_data, merge=True)

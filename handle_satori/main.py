@@ -177,7 +177,8 @@ class Card:
             # Use batch write for better performance
             batch = self.db.batch()
             for card in memos_documents:
-                doc_ref = collection.document(card['satori_id'])
+                #doc_ref = collection.document(card['satori_id'])
+                doc_ref = collection.document()
                 batch.set(doc_ref, card)
                 self.logger.debug(f"Added memo document for satori_id: {card['satori_id']} to batch")
                 

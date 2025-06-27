@@ -1,0 +1,21 @@
+# === Python Cache ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === Environment Files ===
+.env
+.vscode/
+
+# === Jupyter Notebooks ===
+*.ipynb
+.ipynb_checkpoints/
+
+# === Service Account Keys ===
+sa_keys/
+*.json
+*service-account*.json
+*sa-key*.json
+
+.DS_Store

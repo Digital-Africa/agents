@@ -269,15 +269,15 @@ class Memo:
         """
         return self.client_firestore.collection(self.collection_name).document(self.data['id']).set(self.transform(), merge=True)
 
-class StorageDrive:
+class StorageDriveFolder:
     """A class to manage storage drive operations in Firestore.
     
     This class handles operations related to storage drive documents in Firestore.
     """
     
     def __init__(self):
-        """Initialize the StorageDrive class with Firestore client and collection name."""
-        self.collection_name = 'StorageDrive'
+        """Initialize the StorageDriveFolder class with Firestore client and collection name."""
+        self.collection_name = 'StorageDriveFolder'
         self.client_firestore = self.client()
     
     def client(self):
@@ -291,13 +291,13 @@ class StorageDrive:
         client_firestore = firestore.Client(credentials=credentials, project=credentials.project_id, database='memory-bank')
         return client_firestore
 
-    def update_collection(self, object):
+    def update_collection(self, document):
         """Update or create a storage drive document in Firestore.
         
         Args:
             object (dict): Dictionary containing storage drive information.
         """
-        self.client_firestore.collection(self.collection_name).document().set(object, merge=True)
+        self.client_firestore.collection(self.collection_name).document().set(document, merge=True)
     
     def query(self, db_name):
         """Query a storage drive document by its name.
@@ -311,3 +311,4 @@ class StorageDrive:
         query = self.client_firestore.collection(self.collection_name).where(filter=FieldFilter("name", "==", db_name)).get()
         results = [e.to_dict() for e in query]
         return results[0] if results else None
+    

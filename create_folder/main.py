@@ -1,98 +1,204 @@
 from flask import Request, jsonify
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from google.cloud.firestore_v1 import FieldFilter
 from packages.Logging import CloudLogger
 from packages.Drive import Drive
-from packages.Notion import Notion, NotionDatabase
+from packages.Notion import Notion
 from packages.Capsule import CapsuleNotion
-from packages.Firestore import StorageDriveFolder
+from packages.Firestore import StorageDriveFolder, NotionDatabase
 from packages.Tasks import Tasks
+import uuid
+import json
 
-def create_folder(request: Request) -> Dict[str, Any]:
-    # Initialize logger
-    logger = CloudLogger("create_folder_function")
-    logger.info("Starting create_folder function execution")
-    
-    try:
-        requests = request.get_json(force=True)
-        tiers_id = requests.get('tiers_id')
-        folder_card = requests.get('folder_card')
-        parent_id = requests.get('parent_id')
-        
-        logger.info("Processing folder creation request", extra={
-            'tiers_id': tiers_id,
-            'folder_name': folder_card['Name'],
-            'parent_id': parent_id
-        })
-        
-        collection_name = 'Folders'
+class FolderCreator:
+    def __init__(self, request: Request):
+        self.logger = CloudLogger("create_folder_function", 'create_function')
+        self.request_data = request.get_json(force=True)
+        self.tiers_id = self.request_data.get('tiers_id')
+        self.folder_card = self.request_data.get('folder_card')
+        self.parent_id = self.request_data.get('parent_id')
+        self.collection_name = 'Folders'
+        self.drive = Drive()
+        self.notion_writer = Notion().writer
+        self.firestore = StorageDriveFolder().client_firestore
 
-        # Create Drive folder
-        logger.info("Creating Drive folder", extra={'folder_name': folder_card['Name']})
-        drive_document = Drive().create_folder(
-            name=folder_card['Name'], 
-            parent_id=folder_card['Drive Root'], 
-            permissions_list=['mohamed.diabakhate@digital-africa.co']
-        )
-        
-        if drive_document:
-            logger.info("Drive folder created successfully", extra={'drive_url': drive_document['url']})
+    def create_drive_folder(self) -> Optional[Dict[str, Any]]:
+        """Create a folder in Google Drive."""
+        try:
+            _card_ = self.drive.name_not_exists(self.folder_card['name'], self.parent_id)
+            if _card_:
+                self.logger.info(f"Drive folder {self.folder_card['name']} already exists", extra={'_card_': _card_})
+                # Handle case where _card_ is a list containing a dictionary
+                if isinstance(_card_, list) and len(_card_) > 0:
+                    _card_ = _card_[0]  # Take the first item from the list
+                
+                if isinstance(_card_, dict):
+                    _card_['url'] = f"https://drive.google.com/drive/folders/{_card_['id']}"
+                else:
+                    self.logger.error(f"Unexpected _card_ type after processing: {type(_card_)}", extra={'_card_': _card_})
+                    return None
+                return _card_
             
-            # Create Notion page
-            writer = Notion().writer
+            else:
+                self.logger.info("Creating Drive folder", extra={'folder_name': self.folder_card['name']})
+                drive_document = self.drive.create_folder(
+                    name=self.folder_card['name'],
+                    parent_id=self.parent_id,
+                    permissions_list=['mohamed.diabakhate@digital-africa.co']
+                )
+                if not drive_document:
+                    self.logger.error(f'Failed to create Drive folder {self.folder_card["name"]}')
+                    return None
+                
+                # Handle case where drive_document is a list containing a dictionary
+                if isinstance(drive_document, list) and len(drive_document) > 0:
+                    drive_document = drive_document[0]  # Take the first item from the list
+                
+                if not isinstance(drive_document, dict):
+                    self.logger.error(f"Unexpected drive_document type: {type(drive_document)}", extra={'drive_document': drive_document})
+                    return None
+                    
+                self.logger.info("Drive folder created successfully", extra={'drive_url': drive_document['url']})
+                return drive_document
+        except Exception as e:
+            self.logger.error(f"Error in create_drive_folder: {str(e)}", extra={'error_details': str(e), 'folder_card': self.folder_card})
+            raise
+
+    def create_notion_page(self, drive_document: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a page in Notion."""
+        try:
+            if not isinstance(drive_document, dict):
+                self.logger.error(f"Invalid drive_document type: {type(drive_document)}", extra={'drive_document': drive_document})
+                return None
+
             properties = {
-                'Drive': writer.url(drive_document['url']),
-                'Tiers': writer.relation(tiers_id),
-                'Name': writer.title(folder_card['Name']),
+                'Drive': self.notion_writer.url(drive_document['url']),
+                'Tiers': self.notion_writer.relation(self.tiers_id),
+                'Name': self.notion_writer.title(self.folder_card['name']),
             }
-            if parent_id:
-                properties['Parent'] = writer.relation(parent_id)
+            
+            if self.parent_id:
+                try:
+                    parent_page_id = self.firestore.collection('Folders').where(filter=FieldFilter('folder_id', '==', self.parent_id)).get()
+                    self.logger.info("Parent page query result", extra={'parent_page_id': parent_page_id})
+                    if parent_page_id and len(parent_page_id) > 0:
+                        properties['Parent'] = self.notion_writer.relation(parent_page_id[0].id)
+                    else:
+                        self.logger.warning("No parent page found", extra={'parent_id': self.parent_id})
+                except Exception as e:
+                    self.logger.error(f"Error querying parent page: {str(e)}", extra={'parent_id': self.parent_id})
+                    raise
                 
             params = {
                 'database': NotionDatabase().query('Folders')['id'],
-                'properties': properties
+                'properties': properties,
+                'task_name': f'create_folder_{uuid.uuid4()}'
             }
             
-            logger.info("Creating Notion page", extra={'properties': properties})
+            self.logger.info("Creating Notion page", extra={'properties': properties})
             response = CapsuleNotion(**params).run()
-            parent_id = response.json()['id']
             
-            if response.status_code == 200:
-                response = response.json()
-                drive_document['Tiers'] = tiers_id
+            if response.status_code != 200:
+                self.logger.error('Failed to create Notion page', 
+                                extra={'status_code': response.status_code, 'response': response.json()})
+                return None
                 
-                # Update Firestore
-                logger.info("Updating Firestore document", extra={'page_id': folder_card['page_id']})
-                StorageDriveFolder().client_firestore.collection(collection_name).document(folder_card['page_id']).set(drive_document, merge=True)
-                
-                # Process child folders if any
-                if folder_card['Child']:
-                    logger.info("Processing child folders", extra={'child_count': len(folder_card['Child'])})
-                    for child in folder_card['Child']:
-                        child_card = StorageDriveFolder().client_firestore.collection('DriveFolders').document(child['id']).get().to_dict()
-                        payload = {
-                            'tiers_id': tiers_id,
-                            'folder_card': child_card,
-                            'parent_id': parent_id
-                        }
-                        task_payload = {
-                            'url': 'https://europe-west1-digital-africa-rainbow.cloudfunctions.net/create_folder',
-                            'payload': payload,
-                            'queue': 'notion-queue'
-                        }
-                        logger.info("Enqueueing child folder task", extra={'child_id': child['id']})
-                        Tasks().add_task(task_payload)
-                else:
-                    logger.info("No child folders to process")
-                    return jsonify({'success': True, 'parent_id': parent_id}), 200
-            else:
-                error_msg = 'Failed to create Notion page'
-                logger.error(error_msg, extra={'status_code': response.status_code, 'response': response.json()})
-                return jsonify({'error': error_msg}), 500
-        else:
-            error_msg = 'Failed to create Drive folder'
-            logger.error(error_msg)
-            return jsonify({'error': error_msg}), 500
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Error in create_notion_page: {str(e)}", extra={'error_details': str(e), 'drive_document': drive_document})
+            raise
+
+    def process_child_folders(self, notion_parent_id: str) -> None:
+        """Process child folders if they exist."""
+        try:
+            if not self.folder_card.get('child'):
+                self.logger.info("No child folders to process")
+                return
+
+            self.logger.info("Processing child folders", 
+                            extra={'child_count': len(self.folder_card['child'])})
             
-    except Exception as e:
-        logger.error("Error in create_folder function", extra={'error': str(e)})
-        return jsonify({'error': str(e)}), 500
+            for child in self.folder_card['child']:
+                try:
+                    child_card = self.firestore.collection('DriveFolders').document(child).get().to_dict()
+                    self.logger.info("Retrieved child card", extra={'child_id': child, 'child_card': child_card})
+                    
+                    payload = {
+                        'tiers_id': self.tiers_id,
+                        'folder_card': child_card,
+                        'parent_id': notion_parent_id
+                    }
+                    
+                    task_payload = {
+                        'url': 'https://europe-west1-digital-africa-rainbow.cloudfunctions.net/create_folder',
+                        'payload': payload,
+                        'queue': 'notion-queue'
+                    }
+                    
+                    task_name = f'create_folder_child_{uuid.uuid4()}'
+                    self.logger.info("Enqueueing child folder task", extra={'child_id': child})
+                    Tasks().add_task(task_payload, task_name)
+                except Exception as e:
+                    self.logger.error(f"Error processing child folder: {str(e)}", extra={'child': child, 'error_details': str(e)})
+                    raise
+        except Exception as e:
+            self.logger.error(f"Error in process_child_folders: {str(e)}", extra={'error_details': str(e), 'notion_parent_id': notion_parent_id})
+            raise
+
+    def execute(self) -> tuple[Dict[str, Any], int]:
+        """Main execution flow."""
+        try:
+            self.logger.info("Starting create_folder function execution")
+            self.logger.info("Processing folder creation request", extra={
+                'tiers_id': self.tiers_id,
+                'folder_name': self.folder_card['name'],
+                'parent_id': self.parent_id
+            })
+
+            # Create Drive folder
+            try:
+                drive_document = self.create_drive_folder()
+                if not drive_document:
+                    return jsonify({'error': 'Failed to create Drive folder'}), 500
+            except Exception as e:
+                self.logger.error(f"Error in drive folder creation: {str(e)}")
+                raise
+
+            # Create Notion page
+            try:
+                notion_response = self.create_notion_page(drive_document)
+                if not notion_response:
+                    return jsonify({'error': 'Failed to create Notion page'}), 500
+            except Exception as e:
+                self.logger.error(f"Error in notion page creation: {str(e)}")
+                raise
+
+            # Update Firestore
+            try:
+                drive_document['Tiers'] = self.tiers_id
+                self.logger.info("Updating Firestore document", 
+                               extra={'page_id': self.folder_card['page_id']})
+                self.firestore.collection(self.collection_name).document(
+                    self.folder_card['page_id']
+                ).set(drive_document, merge=True)
+            except Exception as e:
+                self.logger.error(f"Error updating Firestore: {str(e)}")
+                raise
+
+            # Process child folders
+            try:
+                self.process_child_folders(notion_response['id'])
+            except Exception as e:
+                self.logger.error(f"Error processing child folders: {str(e)}")
+                raise
+            
+            return jsonify({'success': True, 'parent_id': notion_response['id']}), 200
+
+        except Exception as e:
+            self.logger.error("Error in create_folder function", extra={'error': str(e), 'error_type': type(e).__name__})
+            return jsonify({'error': str(e)}), 500
+
+def create_folder(request: Request) -> Dict[str, Any]:
+    """Entry point for the create_folder function."""
+    folder_creator = FolderCreator(request)
+    return folder_creator.execute()

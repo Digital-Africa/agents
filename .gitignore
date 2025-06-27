@@ -18,3 +18,5 @@ sa_keys/
 *service-account*.json
 *sa-key*.json
 
+.DS_Store
+.DS_Store

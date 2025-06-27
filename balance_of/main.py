@@ -52,7 +52,8 @@ def format_for_contract(token: dict) -> dict:
     Returns:
         dict: Processed data ready for Notion integration
     """
-    try:        
+    try:
+        writer = Notion().writer
         # Extract relevant data from request
         token['totalSupply'] = Function().totalSupply(CONTEXT[token['Network']], token['Address'])
         token['balanceOf'] = Function().balanceOf(CONTEXT[token['Network']], token['Address'])
@@ -90,8 +91,6 @@ def balance_of(request: Request):
     Returns:
         Response: JSON response with status
     """
-    notion = Notion()
-    writer = notion.writer
 
     try:
         logger.info("[balance_of] Received new balance update request")

@@ -1,0 +1,67 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Puppy Developer Rules (Cursor-Compatible)
+
+## Philosophy
+
+- Prefer composable, stateless agents
+- Keep secrets out of code (use Secret Manager)
+- Make logging first-class: all functions must use Logging.py
+- Use modular, testable Python functions
+- Minimal IAM principle: each agent only has access to the resources it needs
+
+## Cloud Native Guidelines
+
+- Use Google Cloud Functions or Cloud Run for deployments
+- Use Firestore (`memory-bank`) to persist job payloads and status
+- Use Cloud Tasks for controlled job scheduling
+- Use Pub/Sub for asynchronous inter-agent messaging
+
+## Packages to Know
+
+- `Logging.py`: Smart logger (wraps structured logging)
+- `SecretAccessor.py`: Securely load secrets from Google Secret Manager
+- `Notion.py`: Helpers to create/update Notion blocks
+- `Slack.py`: Message builders and sender for Slack
+- `Queue.py`: Pub/Sub abstraction for publisher/subscriber logic
+
+## Local First Development
+
+- All functions must support local execution for testing
+- Environment variables can be sourced from `.env.local` during local runs
+- Unit tests should mock external services (Firestore, Pub/Sub, Secret Manager)
+
+## Tests
+
+- Each agent should include tests under `agents/<agent_name>/tests`
+- Focus on:
+  - Correct use of secrets
+  - Logging content
+  - Idempotency
+  - Error handling (no use of `exc_info`)
+
+## Naming Conventions
+
+- Functions: `snake_case`
+- Agents: `verb_action` (e.g., `push_message`, `dispatch_webhook`)
+- Tests: `test_<module>_<function>`
+
+## Example Agent Flow
+
+```
+[Webhook Request]
+   ↓
+[webhook_service]
+   ↓
+[dispatch_webhook] ──> [Cloud Task / PubSub]
+                            ↓
+                     [push_notion]
+                            ↓
+                    [memory-bank.jobs]
+```
+## Documentation 
+- Excutive summary on top for non-tech users. You are allowed to use analogies if it can helps you explain 
+- A testing workflow for the main function

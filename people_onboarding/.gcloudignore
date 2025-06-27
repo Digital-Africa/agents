@@ -1,0 +1,18 @@
+# Ignore script
+
+*.sh
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore local dev files
+.env
+.DS_Store
+*.log
+tests/
+README.md
+local_requirements.txt
+
+# Keep requirements.txt and main.py
+!requirements.txt
+!main.py
